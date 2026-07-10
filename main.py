@@ -4,10 +4,12 @@ import base64
 import asyncio
 import websockets
 from fastapi.responses import Response
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -23,16 +25,26 @@ WS_URL = (
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+class SpeakRequest(BaseModel):
+    prompt: str
+    
 
 @app.get("/")
 async def home():
     return FileResponse("static/index.html")
 
-
-@app.get("/speak")
-async def speak():
+@app.post("/speak")
+async def speak(request: SpeakRequest):
 
     audio_chunks = []
 
@@ -40,12 +52,19 @@ async def speak():
     print("Connecting to Gemini Live...")
 
     async with websockets.connect(WS_URL) as websocket:
+
         setup_message = {
             "setup": {
                 "model": f"models/{MODEL}",
-                "generationConfig": {"responseModalities": ["AUDIO"]},
+                "generationConfig": {
+                    "responseModalities": ["AUDIO"]
+                },
                 "systemInstruction": {
-                    "parts": [{"text": "You are a helpful assistant."}]
+                    "parts": [
+                        {
+                            "text": "You are a helpful assistant."
+                        }
+                    ]
                 },
             }
         }
@@ -57,7 +76,9 @@ async def speak():
         await asyncio.sleep(1)
 
         prompt = {
-            "realtimeInput": {"text": "Hi, how are you?"}
+            "realtimeInput": {
+                "text": request.prompt
+            }
         }
 
         await websocket.send(json.dumps(prompt))
@@ -65,6 +86,7 @@ async def speak():
         print("✓ Prompt sent")
 
         while True:
+
             try:
                 message = await websocket.recv()
 
@@ -79,35 +101,30 @@ async def speak():
 
             server = response["serverContent"]
 
-            if server.get("generationComplete"):
-                print("Generation complete.")
-
             if "modelTurn" in server:
+
                 parts = server["modelTurn"].get("parts", [])
 
                 for part in parts:
+
                     if "inlineData" not in part:
                         continue
 
-                    mime = part["inlineData"].get("mimeType")
-
-                    print("Audio mime:", mime)
-
-                    chunk = base64.b64decode(part["inlineData"]["data"])
-
-                    print(f"Chunk received: {len(chunk)} bytes")
+                    chunk = base64.b64decode(
+                        part["inlineData"]["data"]
+                    )
 
                     audio_chunks.append(chunk)
 
             if server.get("turnComplete"):
-                print("Turn complete.")
                 break
-
-    print(f"Total chunks: {len(audio_chunks)}")
 
     if not audio_chunks:
         return Response(status_code=500)
 
     pcm_data = b"".join(audio_chunks)
 
-    return Response(content=pcm_data, media_type="audio/pcm")
+    return Response(
+        content=pcm_data,
+        media_type="audio/pcm"
+    )

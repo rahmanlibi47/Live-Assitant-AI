@@ -1,72 +1,75 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { PCMPlayer } from "./pcm-player";
 
 function App() {
-  const [status, setStatus] = useState("Idle");
   const [prompt, setPrompt] = useState("");
+  const [status, setStatus] = useState("Idle");
 
-  async function speak() {
-    try {
-      setStatus("Generating...");
+  const socketRef = useRef(null);
+  const playerRef = useRef(null);
 
-      const response = await fetch("http://127.0.0.1:8000/speak", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt,
-        }),
+  async function connect() {
+    if (!playerRef.current) {
+      playerRef.current = new PCMPlayer({
+        sampleRate: 24000,
+        channels: 1,
       });
 
-      const pcm = await response.arrayBuffer();
-
-      playPCM(pcm);
-
-      setStatus("Done");
-    } catch (error) {
-      console.error(error);
-
-      setStatus("Error");
+      await playerRef.current.start();
     }
+
+    socketRef.current = new WebSocket("ws://127.0.0.1:8000/ws/live");
+
+    socketRef.current.binaryType = "arraybuffer";
+
+    socketRef.current.onopen = () => {
+      console.log("Connected");
+      setStatus("Connected");
+    };
+
+    socketRef.current.onmessage = (event) => {
+      // Gemini audio chunk
+      if (event.data instanceof ArrayBuffer) {
+        playerRef.current.play(event.data);
+      } else {
+        console.log("Message:", event.data);
+      }
+    };
+
+    socketRef.current.onclose = () => {
+      setStatus("Disconnected");
+    };
   }
 
-  function playPCM(buffer) {
-    const sampleRate = 24000;
-
-    const pcm = new Int16Array(buffer);
-
-    const audioContext = new AudioContext({
-      sampleRate,
-    });
-
-    const audioBuffer = audioContext.createBuffer(1, pcm.length, sampleRate);
-
-    const channel = audioBuffer.getChannelData(0);
-
-    for (let i = 0; i < pcm.length; i++) {
-      channel[i] = pcm[i] / 32768;
+  function sendPrompt() {
+    if (!socketRef.current) {
+      return;
     }
 
-    const source = audioContext.createBufferSource();
+    socketRef.current.send(prompt);
 
-    source.buffer = audioBuffer;
-
-    source.connect(audioContext.destination);
-
-    source.start();
+    setStatus("Generating...");
   }
 
   return (
     <div style={{ padding: "40px" }}>
       <h1>Gemini Live</h1>
+
+      <button onClick={connect}>Connect</button>
+
+      <br />
+      <br />
+
       <textarea
-        rows={6}
-        cols={60}
-        placeholder="Enter your prompt..."
+        rows="6"
+        cols="60"
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
       />
-      <button onClick={speak}>Speak</button>
+
+      <br />
+
+      <button onClick={sendPrompt}>Speak</button>
 
       <p>{status}</p>
     </div>

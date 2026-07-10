@@ -1,0 +1,91 @@
+import { useState, useRef } from "react";
+import { PCMPlayer } from "../services/pcm-player";
+
+export default function useGeminiLive() {
+  const [prompt, setPrompt] = useState("");
+  const [status, setStatus] = useState("Disconnected");
+  const [connected, setConnected] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const socketRef = useRef(null);
+  const playerRef = useRef(null);
+
+  async function connect() {
+    if (connected) return;
+
+    if (!playerRef.current) {
+      playerRef.current = new PCMPlayer({
+        sampleRate: 24000,
+        channels: 1,
+      });
+
+      await playerRef.current.start();
+    }
+
+    socketRef.current = new WebSocket("ws://127.0.0.1:8000/ws/live");
+    socketRef.current.binaryType = "arraybuffer";
+
+    socketRef.current.onopen = () => {
+      console.log("Connected");
+      setConnected(true);
+      setStatus("Connected");
+    };
+
+    socketRef.current.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        playerRef.current.play(event.data);
+        return;
+      }
+
+      if (event.data === "__END__") {
+        setIsGenerating(false);
+        setStatus("Ready");
+      }
+    };
+
+    socketRef.current.onclose = () => {
+      console.log("Disconnected");
+      setConnected(false);
+      setIsGenerating(false);
+      setStatus("Disconnected");
+    };
+
+    socketRef.current.onerror = () => {
+      console.log("Connection Error");
+      setConnected(false);
+      setIsGenerating(false);
+      setStatus("Connection Error");
+    };
+  }
+
+  function disconnect() {
+    socketRef.current?.close();
+  }
+
+  function sendPrompt() {
+    if (!connected || isGenerating) return;
+
+    const message = prompt.trim();
+
+    if (!message) return;
+
+    socketRef.current.send(message);
+
+    setPrompt("");
+    setIsGenerating(true);
+    setStatus("Generating...");
+  }
+
+  return {
+    prompt,
+    setPrompt,
+
+    status,
+    connected,
+    isGenerating,
+
+    connect,
+    disconnect,
+    sendPrompt,
+  };
+}

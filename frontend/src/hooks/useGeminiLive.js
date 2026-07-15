@@ -23,7 +23,10 @@ export default function useGeminiLive() {
       await playerRef.current.start();
     }
 
-    socketRef.current = new WebSocket("ws://127.0.0.1:8000/ws/live");
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    socketRef.current = new WebSocket(
+      `${protocol}://${window.location.host}/ws/live`,
+    );
     socketRef.current.binaryType = "arraybuffer";
 
     socketRef.current.onopen = () => {

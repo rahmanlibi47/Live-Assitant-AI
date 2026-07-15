@@ -10,7 +10,7 @@ export default function Header({
     return (
         <>
             <Title order={5}>
-                My Live Assistant
+                Lifa AI
             </Title>
 
             <Group justify="space-between">

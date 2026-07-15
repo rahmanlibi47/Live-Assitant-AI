@@ -1,4 +1,4 @@
-import { Container, Stack } from "@mantine/core";
+import { Container, Stack, Text } from "@mantine/core";
 
 import Header from "./components/Header";
 import PromptBox from "./components/PromptBox";
@@ -16,13 +16,13 @@ function App() {
           connect={live.connect}
           disconnect={live.disconnect}
         />
-
         <PromptBox
           prompt={live.prompt}
           setPrompt={live.setPrompt}
           sendPrompt={live.sendPrompt}
           loading={live.isGenerating}
         />
+        <Text>{live.transcript}</Text>
       </Stack>
     </Container>
   );

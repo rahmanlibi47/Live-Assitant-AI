@@ -24,7 +24,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.websocket("/ws/live")
 async def websocket_live(websocket: WebSocket):
 
@@ -35,32 +34,48 @@ async def websocket_live(websocket: WebSocket):
 
     try:
         while True:
+
             prompt = await websocket.receive_text()
 
             print(f"Prompt: {prompt}")
 
             async with websockets.connect(WS_URL) as gemini:
+
                 setup_message = {
                     "setup": {
                         "model": f"models/{settings.MODEL}",
-                        "generationConfig": {"responseModalities": ["AUDIO"]},
+                        "generationConfig": {
+                            "responseModalities": ["AUDIO"]
+                        },
+                        "outputAudioTranscription": {},
                         "systemInstruction": {
-                            "parts": [{"text": "You are a helpful assistant."}]
+                            "parts": [
+                                {
+                                    "text": "You are a helpful assistant."
+                                }
+                            ]
                         },
                     }
                 }
 
                 await gemini.send(json.dumps(setup_message))
 
-                print("Gemini Connected")
 
                 await asyncio.sleep(0.5)
 
-                await gemini.send(json.dumps({"realtimeInput": {"text": prompt}}))
+                await gemini.send(
+                    json.dumps(
+                        {
+                            "realtimeInput": {
+                                "text": prompt
+                            }
+                        }
+                    )
+                )
 
-                print("Prompt Sent")
 
                 while True:
+
                     try:
                         message = await gemini.recv()
 
@@ -70,29 +85,65 @@ async def websocket_live(websocket: WebSocket):
 
                     response = json.loads(message)
 
-                    if "serverContent" not in response:
+                    server = response.get("serverContent")
+
+                    if not server:
                         continue
 
-                    server = response["serverContent"]
+                    # -------------------------
+                    # Stream transcript
+                    # -------------------------
+                    transcription = server.get("outputTranscription")
 
-                    if "modelTurn" in server:
-                        parts = server["modelTurn"].get("parts", [])
+                    if transcription:
 
-                        for part in parts:
-                            if "inlineData" not in part:
-                                continue
+                        text = transcription.get("text", "")
 
-                            audio = base64.b64decode(part["inlineData"]["data"])
+                        print(text, end="", flush=True)
 
-                            # Immediately forward this chunk
-                            await websocket.send_bytes(audio)
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "text",
+                                    "text": text,
+                                }
+                            )
+                        )
 
+                    # -------------------------
+                    # Stream audio
+                    # -------------------------
+                    parts = server.get("modelTurn", {}).get("parts", [])
+
+                    for part in parts:
+
+                        inline = part.get("inlineData")
+
+                        if not inline:
+                            continue
+
+                        audio = base64.b64decode(
+                            inline["data"]
+                        )
+
+                        await websocket.send_bytes(audio)
+
+                    # -------------------------
+                    # Turn finished
+                    # -------------------------
                     if server.get("turnComplete"):
-                        print("Turn Complete")
 
-                        await websocket.send_text("__END__")
+
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "end"
+                                }
+                            )
+                        )
 
                         break
 
     except WebSocketDisconnect:
+
         print("Browser Disconnected")

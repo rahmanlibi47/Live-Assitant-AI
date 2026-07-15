@@ -6,6 +6,7 @@ export default function useGeminiLive() {
   const [status, setStatus] = useState("Disconnected");
   const [connected, setConnected] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [transcript, setTranscript] = useState("");
 
   const socketRef = useRef(null);
   const playerRef = useRef(null);
@@ -32,14 +33,23 @@ export default function useGeminiLive() {
     };
 
     socketRef.current.onmessage = (event) => {
+      // Audio chunks
       if (event.data instanceof ArrayBuffer) {
         playerRef.current.play(event.data);
         return;
       }
 
-      if (event.data === "__END__") {
+      const message = JSON.parse(event.data);
+
+      if (message.type === "text") {
+        setTranscript((prev) => prev + message.text);
+        return;
+      }
+
+      if (message.type === "end") {
         setIsGenerating(false);
         setStatus("Ready");
+        setTranscript("");
       }
     };
 
@@ -87,5 +97,8 @@ export default function useGeminiLive() {
     connect,
     disconnect,
     sendPrompt,
+
+    transcript,
+    setTranscript,
   };
 }
